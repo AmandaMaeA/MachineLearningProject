@@ -1,0 +1,128 @@
+---
+title: "Machine Learning Course Project"
+author: "Amanda Mae"
+date: "8/18/2019"
+output: html_document
+---
+
+###Executive Summary
+The below code takes data from the Human Activity Recognition project and tries to predict the class of the activity based on a set of 160 variables. From running two models, classification trees and random forests, I found the random forests model to have the greatest accuracy, with an accuracy of 0.9736, and an out of sample error of 0.0264. The final step in this file applies the random forests model to the validation data provided. 
+
+*Note:* The dataset used in this project is a courtesy of “Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. Wearable Computing: Accelerometers’ Data Classification of Body Postures and Movements”
+
+####*Section One* Loading, Cleaning, and Formatting Data
+1. Preprare workspace by installing necessary packages and loading training and test data.  
+```{r}
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(RColorBrewer)
+library(rattle)
+library(randomForest)
+library(corrplot)
+library(gbm)
+
+train_in <- read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"), header=T)
+valid_in <- read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"), header=T)
+dim(train_in)
+dim(valid_in)
+```
+We now have a training set with 19,622 observations of 160 variables and a validation set with 20 observations of 160 variables. 
+
+2. Remove varibales with missing values as these will not be useful for prediction. 
+```{r}
+trainData<- train_in[, colSums(is.na(train_in)) == 0]
+validData <- valid_in[, colSums(is.na(valid_in)) == 0]
+dim(trainData)
+dim(validData)
+```
+This bring us to 93 and 60 variables respectively. 
+
+3. Remove the first seven variables. These have participant information which should not be used to predict movement time. 
+```{r}
+trainData <- trainData[, -c(1:7)]
+validData <- validData[, -c(1:7)]
+dim(trainData)
+dim(validData)
+```
+
+4. Split the training data into 70% training and 30% test. This will test our models, and the 20 validData observations will only be used in the end to validate the final model. 
+```{r}
+set.seed(1234) 
+inTrain <- createDataPartition(trainData$classe, p = 0.7, list = FALSE)
+trainData <- trainData[inTrain, ]
+testData <- trainData[-inTrain, ]
+dim(trainData)
+dim(testData)
+```
+
+5. Clean near zero variance. 
+```{r}
+NZV <- nearZeroVar(trainData)
+trainData <- trainData[, -NZV]
+testData  <- testData[, -NZV]
+dim(trainData)
+dim(testData)
+```
+Now we have 53 variables to use to create our predictions. 
+
+####*Section Two* Correlation Plot
+1. Map a correlation plot using the r package corrplot.
+```{r}
+cor_mat <- cor(trainData[, -53])
+corrplot(cor_mat, order = "FPC", method = "color", type = "upper", 
+         tl.cex = 0.8, tl.col = rgb(0, 0, 0))
+```
+The darkest colors in the corrplot show the highest levels of correlation. These names, however, are hard to read, so I will create a variable, highlyCorrelated to print the names of the 75 most correlated variables, with a cutoff of 0.75. 
+
+```{r}
+highlyCorrelated = findCorrelation(cor_mat, cutoff=0.75)
+names(trainData)[highlyCorrelated]
+```
+
+####*Section Three* Model Building
+I will use classification trees and random forests to try and predict the class variable. 
+
+1. Classification Trees: Build the model
+```{r}
+set.seed(12345)
+decisionTreeMod1 <- rpart(classe ~ ., data=trainData, method="class")
+fancyRpartPlot(decisionTreeMod1)
+```
+
+2. Classification Trees: Test model on test data and plot it. 
+```{r}
+predictTreeMod1 <- predict(decisionTreeMod1, testData, type = "class")
+cmtree <- confusionMatrix(predictTreeMod1, testData$classe)
+cmtree
+plot(cmtree$table, col = cmtree$byClass, 
+     main = paste("Decision Tree - Accuracy =", round(cmtree$overall['Accuracy'], 4)))
+```
+
+*Results of Classification Trees*: The decision tree model has an accuracy of 0.6967. This is greater than 0.5 (the probability of flipping a coin), and therefore is a decent predictor. 
+
+3. Random Forests: Build the Model
+```{r}
+controlRF <- trainControl(method="cv", number=3, verboseIter=FALSE)
+modRF1 <- train(classe ~ ., data=trainData, method="rf", trControl=controlRF)
+modRF1$finalModel
+```
+
+4. Random Forests: Test model on test data and plot the model. 
+```{r}
+predictRF1 <- predict(modRF1, newdata=testData)
+cmrf <- confusionMatrix(predictRF1, testData$classe)
+cmrf
+plot(modRF1)
+plot(cmrf$table, col = cmrf$byClass, main = paste("Random Forest Confusion Matrix: Accuracy =", round(cmrf$overall['Accuracy'], 4)))
+```
+
+*Results of Random Forest* The random forests model has an accuracy of 0.9736 (almost 1!). This is greater than 0.5 (the probability of flipping a coin), and greater than the predictability of the classification trees model. This is my stronger model. The out of sample error for this model is 0.0264. 
+
+
+####*Section Four* Choose the best model and apply it to the validation set.
+```{r}
+Results <- predict(modRF1, newdata=validData)
+Results
+```
+These results will now be used for the final quiz. 
